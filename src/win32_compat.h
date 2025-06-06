@@ -80,8 +80,9 @@ struct dirent *win32_readdir(DIR *dirp);
 int win32_closedir(DIR *dirp);
 int win32_dirfd(DIR *dirp);
 
-#define opendir(d) win32_opendir(d)
-#define readdir(d) win32_readdir(d)
+// Use Unicode-aware versions by default for better international character support
+#define opendir(d) win32_opendir_unicode(d)
+#define readdir(d) win32_readdir_unicode(d)
 #define dirfd(d) win32_dirfd(d)
 
 // For g_clear_pointer compatibility, we need a function that matches the signature
@@ -94,6 +95,26 @@ static inline void win32_closedir_clear(DIR *dirp) {
 #define AT_SYMLINK_NOFOLLOW 0x100
 int win32_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags);
 #define fstatat(d, p, b, f) win32_fstatat(d, p, b, f)
+
+// Wide string conversion utilities for Unicode support
+wchar_t *win32_utf8_to_wchar(const char *utf8_str);
+char *win32_wchar_to_utf8(const wchar_t *wchar_str);
+void win32_free_wchar(wchar_t *wchar_str);
+void win32_free_utf8(char *utf8_str);
+
+// Enhanced DIR structure with Unicode support
+typedef struct {
+    HANDLE handle;
+    WIN32_FIND_DATAW find_data_w;  // Unicode version
+    WIN32_FIND_DATAA find_data_a;  // ANSI version (for backward compatibility)
+    struct dirent entry;
+    int first;
+    int use_unicode;
+} DIR_UNICODE;
+
+// Unicode-aware directory functions
+DIR *win32_opendir_unicode(const char *dirname);
+struct dirent *win32_readdir_unicode(DIR *dirp);
 
 // fnmatch flags
 #ifndef FNM_NOMATCH

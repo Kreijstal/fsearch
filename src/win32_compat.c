@@ -50,8 +50,21 @@ char *win32_strcasestr(const char *haystack, const char *needle) {
     return NULL;
 }
 
-// Windows implementation of lstat (just use stat since Windows doesn't have symlinks in the same way)
+// Windows implementation of lstat with Unicode support
 int win32_lstat(const char *path, struct stat *buf) {
+    if (!path || !buf) {
+        return -1;
+    }
+    
+    // Try Unicode version first for better international character support
+    wchar_t *wpath = win32_utf8_to_wchar(path);
+    if (wpath) {
+        int result = _wstat64(wpath, (struct _stat64*)buf);
+        win32_free_wchar(wpath);
+        return result;
+    }
+    
+    // Fallback to ANSI version
     return stat(path, buf);
 }
 
@@ -152,7 +165,146 @@ char *win32_strptime(const char *s, const char *format, struct tm *tm) {
     return NULL; // Format not supported or parsing failed
 }
 
-// Windows directory reading implementations
+// Wide string conversion utilities for Unicode support
+wchar_t *win32_utf8_to_wchar(const char *utf8_str) {
+    if (!utf8_str) {
+        return NULL;
+    }
+    
+    // Calculate required buffer size
+    int wchar_len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
+    if (wchar_len <= 0) {
+        return NULL;
+    }
+    
+    // Allocate buffer and convert
+    wchar_t *wchar_str = malloc(wchar_len * sizeof(wchar_t));
+    if (!wchar_str) {
+        return NULL;
+    }
+    
+    if (MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, wchar_str, wchar_len) == 0) {
+        free(wchar_str);
+        return NULL;
+    }
+    
+    return wchar_str;
+}
+
+char *win32_wchar_to_utf8(const wchar_t *wchar_str) {
+    if (!wchar_str) {
+        return NULL;
+    }
+    
+    // Calculate required buffer size
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wchar_str, -1, NULL, 0, NULL, NULL);
+    if (utf8_len <= 0) {
+        return NULL;
+    }
+    
+    // Allocate buffer and convert
+    char *utf8_str = malloc(utf8_len);
+    if (!utf8_str) {
+        return NULL;
+    }
+    
+    if (WideCharToMultiByte(CP_UTF8, 0, wchar_str, -1, utf8_str, utf8_len, NULL, NULL) == 0) {
+        free(utf8_str);
+        return NULL;
+    }
+    
+    return utf8_str;
+}
+
+void win32_free_wchar(wchar_t *wchar_str) {
+    if (wchar_str) {
+        free(wchar_str);
+    }
+}
+
+void win32_free_utf8(char *utf8_str) {
+    if (utf8_str) {
+        free(utf8_str);
+    }
+}
+
+// Unicode-aware directory opening
+DIR *win32_opendir_unicode(const char *dirname) {
+    if (!dirname) {
+        return NULL;
+    }
+    
+    // Convert UTF-8 dirname to wide string
+    wchar_t *wdirname = win32_utf8_to_wchar(dirname);
+    if (!wdirname) {
+        // Fallback to ANSI version
+        return win32_opendir(dirname);
+    }
+    
+    // Check if dirname is too long to safely append L"\\*" and null terminator
+    size_t wdirname_len = wcslen(wdirname);
+    if (wdirname_len + 2 >= MAX_PATH) {
+        win32_free_wchar(wdirname);
+        return NULL;
+    }
+    
+    DIR *dirp = malloc(sizeof(DIR));
+    if (!dirp) {
+        win32_free_wchar(wdirname);
+        return NULL;
+    }
+    
+    // Construct search pattern
+    wchar_t wsearch_path[MAX_PATH];
+    swprintf(wsearch_path, MAX_PATH, L"%ls\\*", wdirname);
+    win32_free_wchar(wdirname);
+    
+    // Use Unicode version of FindFirstFile
+    dirp->handle = FindFirstFileW(wsearch_path, (WIN32_FIND_DATAW*)&dirp->find_data);
+    if (dirp->handle == INVALID_HANDLE_VALUE) {
+        free(dirp);
+        return NULL;
+    }
+    
+    dirp->first = 1;
+    return dirp;
+}
+
+struct dirent *win32_readdir_unicode(DIR *dirp) {
+    if (!dirp || dirp->handle == INVALID_HANDLE_VALUE) {
+        return NULL;
+    }
+    
+    WIN32_FIND_DATAW *find_data = (WIN32_FIND_DATAW*)&dirp->find_data;
+    
+    if (dirp->first) {
+        dirp->first = 0;
+    } else {
+        if (!FindNextFileW(dirp->handle, find_data)) {
+            return NULL;
+        }
+    }
+    
+    // Convert wide string filename to UTF-8
+    char *utf8_name = win32_wchar_to_utf8(find_data->cFileName);
+    if (utf8_name) {
+        strncpy(dirp->entry.d_name, utf8_name, sizeof(dirp->entry.d_name) - 1);
+        dirp->entry.d_name[sizeof(dirp->entry.d_name) - 1] = '\0';
+        win32_free_utf8(utf8_name);
+    } else {
+        // Fallback: truncate wide string to ASCII
+        size_t len = wcstombs(dirp->entry.d_name, find_data->cFileName, sizeof(dirp->entry.d_name) - 1);
+        if (len == (size_t)-1) {
+            dirp->entry.d_name[0] = '\0';
+        } else {
+            dirp->entry.d_name[len] = '\0';
+        }
+    }
+    
+    return &dirp->entry;
+}
+
+// Windows directory reading implementations (ANSI versions for backward compatibility)
 DIR *win32_opendir(const char *dirname) {
     if (!dirname) {
         return NULL;
@@ -225,37 +377,69 @@ int win32_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags) 
     // we need to get the current directory path and construct the full path.
     // This is a limitation of our Windows compatibility layer.
     
-    // If pathname is already absolute, use it directly
-    if (pathname && (pathname[0] == '/' || pathname[0] == '\\' ||
-                    (pathname[0] && pathname[1] == ':'))) {
-        return stat(pathname, buf);
-    }
-    
-    // For relative paths, we need to get the current working directory
-    // and construct the full path
-    char full_path[MAX_PATH];
-    if (GetCurrentDirectoryA(sizeof(full_path), full_path) == 0) {
+    if (!pathname || !buf) {
         return -1;
     }
     
-    // Append path separator if needed
-    size_t len = strlen(full_path);
-    if (len > 0 && full_path[len-1] != '\\' && full_path[len-1] != '/') {
-        if (len + 1 >= MAX_PATH) { // Ensure space for backslash and null terminator
-            return -1; // Path too long
+    // If pathname is already absolute, use Unicode lstat directly
+    if (pathname[0] == '/' || pathname[0] == '\\' ||
+        (pathname[0] && pathname[1] == ':')) {
+        return win32_lstat(pathname, buf);
+    }
+    
+    // For relative paths, we need to get the current working directory
+    // and construct the full path using Unicode functions
+    wchar_t wfull_path[MAX_PATH];
+    if (GetCurrentDirectoryW(MAX_PATH, wfull_path) == 0) {
+        return -1;
+    }
+    
+    // Convert pathname to wide string
+    wchar_t *wpathname = win32_utf8_to_wchar(pathname);
+    if (!wpathname) {
+        // Fallback to ANSI version
+        char full_path[MAX_PATH];
+        if (GetCurrentDirectoryA(sizeof(full_path), full_path) == 0) {
+            return -1;
         }
-        strncat(full_path, "\\", MAX_PATH - len - 1);
+        
+        size_t len = strlen(full_path);
+        if (len > 0 && full_path[len-1] != '\\' && full_path[len-1] != '/') {
+            if (len + 1 >= MAX_PATH) {
+                return -1;
+            }
+            strncat(full_path, "\\", MAX_PATH - len - 1);
+        }
+        
+        if (len + strlen(pathname) >= MAX_PATH) {
+            return -1;
+        }
+        strncat(full_path, pathname, MAX_PATH - len - 1);
+        
+        return stat(full_path, buf);
+    }
+    
+    // Append path separator if needed
+    size_t wlen = wcslen(wfull_path);
+    if (wlen > 0 && wfull_path[wlen-1] != L'\\' && wfull_path[wlen-1] != L'/') {
+        if (wlen + 1 >= MAX_PATH) {
+            win32_free_wchar(wpathname);
+            return -1;
+        }
+        wcscat(wfull_path, L"\\");
+        wlen++;
     }
     
     // Append the filename
-    if (len + strlen(pathname) >= MAX_PATH) { // Ensure total length does not exceed MAX_PATH
-        return -1; // Path too long
+    if (wlen + wcslen(wpathname) >= MAX_PATH) {
+        win32_free_wchar(wpathname);
+        return -1;
     }
-    strncat(full_path, pathname, MAX_PATH - len - 1);
+    wcscat(wfull_path, wpathname);
+    win32_free_wchar(wpathname);
     
-    // printf("[DEBUG] fstatat: pathname='%s', full_path='%s'\n", pathname, full_path);
-    
-    return stat(full_path, buf);
+    // Use Unicode stat
+    return _wstat64(wfull_path, (struct _stat64*)buf);
 }
 
 #endif // _WIN32
