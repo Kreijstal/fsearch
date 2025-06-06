@@ -160,7 +160,7 @@ DIR *win32_opendir(const char *dirname) {
     
     // Check if dirname is too long to safely append "\\*" and null terminator
     // We need: strlen(dirname) + strlen("\\*") + 1 (null terminator) <= MAX_PATH
-    if (strlen(dirname) + 2 >= MAX_PATH) {
+    if (strlen(dirname) + 3 > MAX_PATH) {
         // Handle error: dirname too long
         return NULL;
     }
