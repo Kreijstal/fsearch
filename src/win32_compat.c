@@ -241,14 +241,17 @@ int win32_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags) 
     // Append path separator if needed
     size_t len = strlen(full_path);
     if (len > 0 && full_path[len-1] != '\\' && full_path[len-1] != '/') {
-        strcat(full_path, "\\");
+        if (len + 1 >= MAX_PATH) { // Ensure space for backslash and null terminator
+            return -1; // Path too long
+        }
+        strncat(full_path, "\\", MAX_PATH - len - 1);
     }
     
     // Append the filename
-    if (strlen(full_path) + strlen(pathname) >= MAX_PATH) {
+    if (len + strlen(pathname) >= MAX_PATH) { // Ensure total length does not exceed MAX_PATH
         return -1; // Path too long
     }
-    strcat(full_path, pathname);
+    strncat(full_path, pathname, MAX_PATH - len - 1);
     
     // printf("[DEBUG] fstatat: pathname='%s', full_path='%s'\n", pathname, full_path);
     
