@@ -23,7 +23,7 @@
 #include "fsearch_string_utils.h"
 #include "fsearch_ui_utils.h"
 
-#ifndef __MACH__
+#if !defined(__MACH__) && !defined(_WIN32)
 #include <gio/gdesktopappinfo.h>
 #endif
 
@@ -241,7 +241,7 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
             if (!path) {
                 continue;
             }
-            #ifdef __MACH__
+            #if defined(__MACH__) || defined(_WIN32)
             GAppInfo *desktop_app_info = g_app_info_create_from_commandline("/usr/bin/open", NULL, G_APP_INFO_CREATE_NONE, NULL);
             #else
             GDesktopAppInfo *desktop_app_info = g_desktop_app_info_new_from_filename(path);
@@ -265,12 +265,24 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
 
     GAppInfo *app_info = g_app_info_get_default_for_type(content_type, FALSE);
     if (!app_info) {
-        add_error_message_with_format(ctx->error_messages,
-                                      C_("Will be followed by the content type string.",
-                                         "Error when getting information for content type"),
-                                      content_type,
-                                      _("No default application registered"));
-        return;
+#ifdef _WIN32
+        // On Windows, if no default application is registered for directory content types,
+        // fall back to using explorer.exe directly
+        if (strcmp(content_type, "application/x-directory") == 0 || strcmp(content_type, "inode/directory") == 0) {
+            app_info = g_app_info_create_from_commandline("explorer.exe", "File Explorer", G_APP_INFO_CREATE_NONE, NULL);
+            if (app_info) {
+                g_debug("[Windows] Using explorer.exe fallback for directory content type: %s", content_type);
+            }
+        }
+#endif
+        if (!app_info) {
+            add_error_message_with_format(ctx->error_messages,
+                                          C_("Will be followed by the content type string.",
+                                             "Error when getting information for content type"),
+                                          content_type,
+                                          _("No default application registered"));
+            return;
+        }
     }
 
     FsearchFileUtilsLaunchUrisContext *launch_uris_ctx = g_new0(FsearchFileUtilsLaunchUrisContext, 1);
@@ -573,7 +585,7 @@ fsearch_file_utils_get_file_type(const char *name, gboolean is_dir) {
 
 GIcon *
 fsearch_file_utils_get_desktop_file_icon(const char *path) {
-    #ifdef __MACH__
+    #if defined(__MACH__) || defined(_WIN32)
     g_autoptr(GAppInfo) info = NULL;
     #else
     g_autoptr(GAppInfo) info = (GAppInfo *)g_desktop_app_info_new_from_filename(path);
@@ -655,6 +667,15 @@ fsearch_file_utils_get_content_type(const char *path, GError **error) {
         return NULL;
     }
     const char *content_type = g_file_info_get_content_type(info);
+    
+#ifdef _WIN32
+    // On Windows, GLib sometimes returns Unix-style content types like "inode/directory"
+    // which Windows doesn't understand. Convert them to Windows-compatible types.
+    if (content_type && strcmp(content_type, "inode/directory") == 0) {
+        return g_strdup("application/x-directory");
+    }
+#endif
+    
     return content_type ? g_strdup(content_type) : NULL;
 }
 
