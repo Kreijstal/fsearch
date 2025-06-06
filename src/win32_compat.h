@@ -63,9 +63,6 @@ char *win32_strptime(const char *s, const char *format, struct tm *tm);
 #define fnmatch(p, s, f) win32_fnmatch(p, s, f)
 #define strptime(s, f, tm) win32_strptime(s, f, tm)
 
-// Directory reading compatibility
-#include <windows.h>
-
 // POSIX dirent structure for Windows
 struct dirent {
     char d_name[260]; // MAX_PATH

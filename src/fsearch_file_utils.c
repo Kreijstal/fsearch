@@ -241,8 +241,12 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
             if (!path) {
                 continue;
             }
-            #if defined(__MACH__) || defined(_WIN32)
+            #if defined(__MACH__)
             GAppInfo *desktop_app_info = g_app_info_create_from_commandline("/usr/bin/open", NULL, G_APP_INFO_CREATE_NONE, NULL);
+            #elif defined(_WIN32)
+            // On Windows, desktop files don't exist in the same way, so we just return NULL
+            // This will cause the fallback behavior to be used
+            GAppInfo *desktop_app_info = NULL;
             #else
             GDesktopAppInfo *desktop_app_info = g_desktop_app_info_new_from_filename(path);
             #endif
