@@ -239,7 +239,7 @@ int win32_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags) 
     }
     strcat(full_path, pathname);
     
-    printf("[DEBUG] fstatat: pathname='%s', full_path='%s'\n", pathname, full_path);
+    // printf("[DEBUG] fstatat: pathname='%s', full_path='%s'\n", pathname, full_path);
     
     return stat(full_path, buf);
 }
