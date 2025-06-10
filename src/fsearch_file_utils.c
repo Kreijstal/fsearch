@@ -541,7 +541,6 @@ fsearch_file_utils_open_path_list(GList *paths,
 
 static bool
 fsearch_file_utils_open_path_with_command(const char *path, const char *cmd, GString *error_message) {
-	//ON WINDOWS THIS IS NOT OPENNG THE PARENT PATH BUT THE FILE ITSELF
     g_autoptr(GFile) file = g_file_new_for_path(path);
     g_autoptr(GFile) parent = g_file_get_parent(file);
     // If file has no parent it means it's the root directory.
