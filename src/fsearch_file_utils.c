@@ -569,7 +569,11 @@ fsearch_file_utils_open_path_with_command(const char *path, const char *cmd, GSt
     }
 
     const char *error_description = C_("Will be followed by the path of the folder.", "Error while opening folder");
+#ifdef _WIN32
+    g_autofree char *cmd_res = build_folder_open_cmd(parent_path, parent_path, cmd);
+#else
     g_autofree char *cmd_res = build_folder_open_cmd(path, path, cmd);
+#endif
     if (!cmd_res) {
         add_error_message_with_format(error_message, error_description, path, _("Failed to build open command"));
         return false;
