@@ -140,14 +140,17 @@ build_folder_open_cmd(const char *path, const char *path_full, const char *cmd) 
     
     // Also support legacy %p token for backward compatibility
     if (result && strstr(result, "%p")) {
+        g_autoptr(GRegex) legacy_regex = g_regex_new("%p", 0, 0, NULL);
+        if (legacy_regex) {
 #ifdef _WIN32
-        // On Windows, use the raw path without additional quoting since %p was already quoted in the template
-        g_autofree char *temp = g_strdup(result);
-        result = g_strreplace(temp, "%p", path_full, -1);
+            // On Windows, use the raw path without additional quoting since %p was already quoted in the template
+            g_autofree char *temp = g_steal_pointer(&result);
+            result = g_regex_replace_literal(legacy_regex, temp, -1, 0, path_full, 0, NULL);
 #else
-        g_autofree char *temp = g_strdup(result);
-        result = g_strreplace(temp, "%p", path_full_quoted, -1);
+            g_autofree char *temp = g_steal_pointer(&result);
+            result = g_regex_replace_literal(legacy_regex, temp, -1, 0, path_full_quoted, 0, NULL);
 #endif
+        }
     }
     
     return g_steal_pointer(&result);
