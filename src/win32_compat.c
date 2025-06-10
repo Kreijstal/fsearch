@@ -128,6 +128,11 @@ int win32_fnmatch(const char *pattern, const char *string, int flags) {
 }
 
 // Simple strptime implementation for Windows
+// WARNING: This is a very basic implementation that only supports:
+// - "%Y-%m-%d" (ISO date format)
+// - "%Y-%m-%d %H:%M:%S" (ISO datetime format)
+// If other formats are needed, this function must be expanded or replaced
+// with a more complete strptime polyfill.
 char *win32_strptime(const char *s, const char *format, struct tm *tm) {
     // Very basic implementation - only handles common formats
     // This is a simplified version that handles basic ISO date formats
@@ -260,7 +265,7 @@ DIR *win32_opendir_unicode(const char *dirname) {
     win32_free_wchar(wdirname);
     
     // Use Unicode version of FindFirstFile
-    dirp->handle = FindFirstFileW(wsearch_path, (WIN32_FIND_DATAW*)&dirp->find_data);
+    dirp->handle = FindFirstFileW(wsearch_path, &dirp->find_data);
     if (dirp->handle == INVALID_HANDLE_VALUE) {
         free(dirp);
         return NULL;
@@ -275,25 +280,23 @@ struct dirent *win32_readdir_unicode(DIR *dirp) {
         return NULL;
     }
     
-    WIN32_FIND_DATAW *find_data = (WIN32_FIND_DATAW*)&dirp->find_data;
-    
     if (dirp->first) {
         dirp->first = 0;
     } else {
-        if (!FindNextFileW(dirp->handle, find_data)) {
+        if (!FindNextFileW(dirp->handle, &dirp->find_data)) {
             return NULL;
         }
     }
     
     // Convert wide string filename to UTF-8
-    char *utf8_name = win32_wchar_to_utf8(find_data->cFileName);
+    char *utf8_name = win32_wchar_to_utf8(dirp->find_data.cFileName);
     if (utf8_name) {
         strncpy(dirp->entry.d_name, utf8_name, sizeof(dirp->entry.d_name) - 1);
         dirp->entry.d_name[sizeof(dirp->entry.d_name) - 1] = '\0';
         win32_free_utf8(utf8_name);
     } else {
         // Fallback: truncate wide string to ASCII
-        size_t len = wcstombs(dirp->entry.d_name, find_data->cFileName, sizeof(dirp->entry.d_name) - 1);
+        size_t len = wcstombs(dirp->entry.d_name, dirp->find_data.cFileName, sizeof(dirp->entry.d_name) - 1);
         if (len == (size_t)-1) {
             dirp->entry.d_name[0] = '\0';
         } else {
@@ -325,7 +328,7 @@ DIR *win32_opendir(const char *dirname) {
     char search_path[MAX_PATH];
     snprintf(search_path, sizeof(search_path), "%s\\*", dirname);
     
-    dirp->handle = FindFirstFileA(search_path, &dirp->find_data);
+    dirp->handle = FindFirstFileA(search_path, (LPWIN32_FIND_DATAA)&dirp->find_data);
     if (dirp->handle == INVALID_HANDLE_VALUE) {
         free(dirp);
         return NULL;
@@ -343,12 +346,12 @@ struct dirent *win32_readdir(DIR *dirp) {
     if (dirp->first) {
         dirp->first = 0;
     } else {
-        if (!FindNextFileA(dirp->handle, &dirp->find_data)) {
+        if (!FindNextFileA(dirp->handle, (LPWIN32_FIND_DATAA)&dirp->find_data)) {
             return NULL;
         }
     }
     
-    strncpy(dirp->entry.d_name, dirp->find_data.cFileName, sizeof(dirp->entry.d_name) - 1);
+    strncpy(dirp->entry.d_name, ((LPWIN32_FIND_DATAA)&dirp->find_data)->cFileName, sizeof(dirp->entry.d_name) - 1);
     dirp->entry.d_name[sizeof(dirp->entry.d_name) - 1] = '\0';
     
     return &dirp->entry;
