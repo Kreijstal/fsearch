@@ -268,8 +268,6 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
             #if defined(__MACH__)
             GAppInfo *desktop_app_info = g_app_info_create_from_commandline("/usr/bin/open", NULL, G_APP_INFO_CREATE_NONE, NULL);
             #elif defined(_WIN32)
-            // On Windows, desktop files don't exist in the same way, so we just return NULL
-            // This will cause the fallback behavior to be used <- WRONG WRONG WRONG
             GAppInfo *desktop_app_info = NULL;
             #else
             GDesktopAppInfo *desktop_app_info = g_desktop_app_info_new_from_filename(path);
@@ -295,11 +293,6 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
     g_debug("[open_files] Looking for default app for content type: %s, found: %s", 
             content_type, app_info ? "yes" : "no");
 	#ifdef _WIN32
-    //APP info is NOT FALSE HERE
-        // On Windows, if no default application is registered for directory content types,
-        // we need to handle directories specially by launching explorer.exe with the path
-            // For directories on Windows, we launch explorer.exe individually for each path
-            // instead of trying to batch them, since explorer.exe needs the specific path
             for (uint32_t i = 0; i < files->len; ++i) {
                 GFile *file = g_ptr_array_index(files, i);
                 g_autofree char *path = g_file_get_path(file);
@@ -319,8 +312,6 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
                 }
             }
             return;
-        // For non-directory files on Windows, try to use the system default
-        // This should work for most file types including images
         #endif
 
     if (!app_info) {
@@ -365,7 +356,6 @@ handle_callback(FsearchFileUtilsOpenCallback callback, gpointer callback_data, G
 
 static void
 handle_queued_uris(FsearchFileUtilsLaunchContext *launch_ctx) {
-	   printf("handle_quiued_uris\r\n");
     if (g_queue_is_empty(launch_ctx->launch_uris_ctx_queue)) {
         // All files were handled, either successfully or with errors
         handle_callback(launch_ctx->callback, launch_ctx->callback_data, launch_ctx->error_messages);
