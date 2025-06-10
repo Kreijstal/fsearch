@@ -100,8 +100,15 @@ build_folder_open_cmd(const char *path, const char *path_full, const char *cmd) 
     if (!path || !path_full) {
         return NULL;
     }
+    
+#ifdef _WIN32
+    // On Windows, use simple double quotes for paths instead of shell quoting
+    g_autofree char *path_quoted = g_strdup_printf("\"%s\"", path);
+    g_autofree char *path_full_quoted = g_strdup_printf("\"%s\"", path_full);
+#else
     g_autofree char *path_quoted = g_shell_quote(path);
     g_autofree char *path_full_quoted = g_shell_quote(path_full);
+#endif
 
     // The following code is mostly based on the example code found here:
     // https://developer.gnome.org/glib/stable/glib-Perl-compatible-regular-expressions.html#g-regex-replace-eval
@@ -129,7 +136,21 @@ build_folder_open_cmd(const char *path, const char *path_full, const char *cmd) 
     // surrounded with {}
     g_autoptr(GRegex) reg = g_regex_new("{[\\w]+}", 0, 0, NULL);
     // Replace all the matched keywords
-    return g_regex_replace_eval(reg, cmd, -1, 0, 0, keyword_eval_cb, keywords, NULL);
+    g_autofree char *result = g_regex_replace_eval(reg, cmd, -1, 0, 0, keyword_eval_cb, keywords, NULL);
+    
+    // Also support legacy %p token for backward compatibility
+    if (result && strstr(result, "%p")) {
+#ifdef _WIN32
+        // On Windows, use the raw path without additional quoting since %p was already quoted in the template
+        g_autofree char *temp = g_strdup(result);
+        result = g_strreplace(temp, "%p", path_full, -1);
+#else
+        g_autofree char *temp = g_strdup(result);
+        result = g_strreplace(temp, "%p", path_full_quoted, -1);
+#endif
+    }
+    
+    return g_steal_pointer(&result);
 }
 
 static bool
@@ -271,12 +292,50 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
     if (!app_info) {
 #ifdef _WIN32
         // On Windows, if no default application is registered for directory content types,
-        // fall back to using explorer.exe directly
+        // we need to handle directories specially by launching explorer.exe with the path
         if (strcmp(content_type, "application/x-directory") == 0 || strcmp(content_type, "inode/directory") == 0) {
-            app_info = g_app_info_create_from_commandline("explorer.exe", "File Explorer", G_APP_INFO_CREATE_NONE, NULL);
-            if (app_info) {
-                g_debug("[Windows] Using explorer.exe fallback for directory content type: %s", content_type);
+            // For directories on Windows, we launch explorer.exe individually for each path
+            // instead of trying to batch them, since explorer.exe needs the specific path
+            for (uint32_t i = 0; i < files->len; ++i) {
+                GFile *file = g_ptr_array_index(files, i);
+                g_autofree char *path = g_file_get_path(file);
+                if (path) {
+                    g_autofree char *quoted_path = g_shell_quote(path);
+                    g_autofree char *command = g_strdup_printf("explorer.exe %s", quoted_path);
+                    g_autoptr(GError) error = NULL;
+                    if (!g_spawn_command_line_async(command, &error)) {
+                        add_error_message_with_format(ctx->error_messages,
+                                                      C_("Will be followed by the path of the folder.",
+                                                         "Error while opening folder"),
+                                                      path,
+                                                      error->message);
+                    } else {
+                        g_debug("[Windows] Launched explorer.exe for directory: %s", path);
+                    }
+                }
             }
+            return;
+        }
+        // For non-directory files on Windows, try to use the system default
+        // This should work for most file types including images
+        else {
+            // Use the system's default handler for this file type
+            for (uint32_t i = 0; i < files->len; ++i) {
+                GFile *file = g_ptr_array_index(files, i);
+                g_autofree char *uri = g_file_get_uri(file);
+                if (uri) {
+                    g_autoptr(GError) error = NULL;
+                    if (!g_app_info_launch_default_for_uri(uri, ctx->app_launch_context, &error)) {
+                        g_autofree char *path = g_file_get_path(file);
+                        add_error_message_with_format(ctx->error_messages,
+                                                      C_("Will be followed by the path of the file.",
+                                                         "Error while opening file"),
+                                                      path ? path : uri,
+                                                      error->message);
+                    }
+                }
+            }
+            return;
         }
 #endif
         if (!app_info) {

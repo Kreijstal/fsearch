@@ -249,7 +249,7 @@ config_load(FsearchConfig *config) {
 
         // Applications
 #ifdef _WIN32
-        config->folder_open_cmd = config_load_string(key_file, "Applications", "folder_open_cmd", "explorer \"%p\"");
+        config->folder_open_cmd = config_load_string(key_file, "Applications", "folder_open_cmd", "explorer.exe \"{path_full_raw}\"");
 #else
         config->folder_open_cmd = config_load_string(key_file, "Applications", "folder_open_cmd", NULL);
 #endif
