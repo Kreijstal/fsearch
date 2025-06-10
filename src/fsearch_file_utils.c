@@ -269,7 +269,7 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
             GAppInfo *desktop_app_info = g_app_info_create_from_commandline("/usr/bin/open", NULL, G_APP_INFO_CREATE_NONE, NULL);
             #elif defined(_WIN32)
             // On Windows, desktop files don't exist in the same way, so we just return NULL
-            // This will cause the fallback behavior to be used
+            // This will cause the fallback behavior to be used <- WRONG WRONG WRONG
             GAppInfo *desktop_app_info = NULL;
             #else
             GDesktopAppInfo *desktop_app_info = g_desktop_app_info_new_from_filename(path);
@@ -294,11 +294,10 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
     GAppInfo *app_info = g_app_info_get_default_for_type(content_type, FALSE);
     g_debug("[open_files] Looking for default app for content type: %s, found: %s", 
             content_type, app_info ? "yes" : "no");
-    if (!app_info) {
-#ifdef _WIN32
+	#ifdef _WIN32
+    //APP info is NOT FALSE HERE
         // On Windows, if no default application is registered for directory content types,
         // we need to handle directories specially by launching explorer.exe with the path
-        if (strcmp(content_type, "application/x-directory") == 0 || strcmp(content_type, "inode/directory") == 0) {
             // For directories on Windows, we launch explorer.exe individually for each path
             // instead of trying to batch them, since explorer.exe needs the specific path
             for (uint32_t i = 0; i < files->len; ++i) {
@@ -320,34 +319,11 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
                 }
             }
             return;
-        }
         // For non-directory files on Windows, try to use the system default
         // This should work for most file types including images
-        else {
-            // Use the system's default handler for this file type
-            for (uint32_t i = 0; i < files->len; ++i) {
-                GFile *file = g_ptr_array_index(files, i);
-                g_autofree char *uri = g_file_get_uri(file);
-                g_autofree char *path = g_file_get_path(file);
-                if (uri) {
-                    g_debug("[Windows] Attempting to open file with system default: %s (URI: %s, Content-Type: %s)", 
-                            path ? path : "unknown", uri, content_type);
-                    g_autoptr(GError) error = NULL;
-                    if (!g_app_info_launch_default_for_uri(uri, ctx->app_launch_context, &error)) {
-                        g_debug("[Windows] Failed to open file with system default: %s", error ? error->message : "unknown error");
-                        add_error_message_with_format(ctx->error_messages,
-                                                      C_("Will be followed by the path of the file.",
-                                                         "Error while opening file"),
-                                                      path ? path : uri,
-                                                      error->message);
-                    } else {
-                        g_debug("[Windows] Successfully launched system default for file: %s", path ? path : uri);
-                    }
-                }
-            }
-            return;
-        }
-#endif
+        #endif
+
+    if (!app_info) {
         if (!app_info) {
             add_error_message_with_format(ctx->error_messages,
                                           C_("Will be followed by the content type string.",
@@ -389,6 +365,7 @@ handle_callback(FsearchFileUtilsOpenCallback callback, gpointer callback_data, G
 
 static void
 handle_queued_uris(FsearchFileUtilsLaunchContext *launch_ctx) {
+	   printf("handle_quiued_uris\r\n");
     if (g_queue_is_empty(launch_ctx->launch_uris_ctx_queue)) {
         // All files were handled, either successfully or with errors
         handle_callback(launch_ctx->callback, launch_ctx->callback_data, launch_ctx->error_messages);
@@ -574,6 +551,7 @@ fsearch_file_utils_open_path_list(GList *paths,
 
 static bool
 fsearch_file_utils_open_path_with_command(const char *path, const char *cmd, GString *error_message) {
+	//ON WINDOWS THIS IS NOT OPENNG THE PARENT PATH BUT THE FILE ITSELF
     g_autoptr(GFile) file = g_file_new_for_path(path);
     g_autoptr(GFile) parent = g_file_get_parent(file);
     // If file has no parent it means it's the root directory.
