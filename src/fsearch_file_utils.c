@@ -292,6 +292,8 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
     }
 
     GAppInfo *app_info = g_app_info_get_default_for_type(content_type, FALSE);
+    g_debug("[open_files] Looking for default app for content type: %s, found: %s", 
+            content_type, app_info ? "yes" : "no");
     if (!app_info) {
 #ifdef _WIN32
         // On Windows, if no default application is registered for directory content types,
@@ -326,15 +328,20 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
             for (uint32_t i = 0; i < files->len; ++i) {
                 GFile *file = g_ptr_array_index(files, i);
                 g_autofree char *uri = g_file_get_uri(file);
+                g_autofree char *path = g_file_get_path(file);
                 if (uri) {
+                    g_debug("[Windows] Attempting to open file with system default: %s (URI: %s, Content-Type: %s)", 
+                            path ? path : "unknown", uri, content_type);
                     g_autoptr(GError) error = NULL;
                     if (!g_app_info_launch_default_for_uri(uri, ctx->app_launch_context, &error)) {
-                        g_autofree char *path = g_file_get_path(file);
+                        g_debug("[Windows] Failed to open file with system default: %s", error ? error->message : "unknown error");
                         add_error_message_with_format(ctx->error_messages,
                                                       C_("Will be followed by the path of the file.",
                                                          "Error while opening file"),
                                                       path ? path : uri,
                                                       error->message);
+                    } else {
+                        g_debug("[Windows] Successfully launched system default for file: %s", path ? path : uri);
                     }
                 }
             }
@@ -354,10 +361,16 @@ create_uris_launch_context(const char *content_type, GPtrArray *files, FsearchFi
     FsearchFileUtilsLaunchUrisContext *launch_uris_ctx = g_new0(FsearchFileUtilsLaunchUrisContext, 1);
     launch_uris_ctx->app_info = g_steal_pointer(&app_info);
 
+    g_debug("[open_files] Using app_info for content type %s: %s", content_type, 
+            g_app_info_get_name(launch_uris_ctx->app_info));
+
     for (uint32_t i = 0; i < files->len; ++i) {
         GFile *file = g_ptr_array_index(files, i);
         char *uri = g_file_get_uri(file);
         if (uri) {
+            g_autofree char *path = g_file_get_path(file);
+            g_debug("[open_files] Adding file to launch queue: %s (URI: %s)", 
+                    path ? path : "unknown", uri);
             launch_uris_ctx->uris = g_list_append(launch_uris_ctx->uris, uri);
         }
     }
