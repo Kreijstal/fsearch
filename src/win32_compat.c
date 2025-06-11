@@ -152,74 +152,72 @@ char *win32_strptime(const char *s, const char *format, struct tm *tm) {
     while (*f && *p) {
         if (*f == '%') {
             f++;
+            int consumed = 0;
+            int n;
             switch (*f) {
-            case 'Y': { // 4-digit year
-                if (sscanf(p, "%4d", &tm->tm_year) != 1) {
+            case 'Y': // 4-digit year
+                if (sscanf(p, "%4d%n", &n, &consumed) != 1 || consumed != 4) {
                     return NULL;
                 }
-                tm->tm_year -= 1900;
-                p += 4;
+                tm->tm_year = n - 1900;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'y': { // 2-digit year
-                int year;
-                if (sscanf(p, "%2d", &year) != 1) {
+            case 'y': // 2-digit year
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed != 2) {
                     return NULL;
                 }
-                tm->tm_year = (year < 69) ? (year + 100) : year; // 69-99: 1969-1999, 00-68: 2000-2068
-                p += 2;
+                tm->tm_year = (n < 69) ? (n + 100) : n;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'm': { // month
-                if (sscanf(p, "%2d", &tm->tm_mon) != 1) {
+            case 'm': // month
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed == 0) {
                     return NULL;
                 }
-                tm->tm_mon--;
-                p += 2;
+                tm->tm_mon = n - 1;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'd': { // day
-                if (sscanf(p, "%2d", &tm->tm_mday) != 1) {
+            case 'd': // day
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed == 0) {
                     return NULL;
                 }
-                p += 2;
+                tm->tm_mday = n;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'H': { // hour
-                if (sscanf(p, "%2d", &tm->tm_hour) != 1) {
+            case 'H': // hour (00-23)
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed == 0) {
                     return NULL;
                 }
-                p += 2;
+                tm->tm_hour = n;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'M': { // minute
-                if (sscanf(p, "%2d", &tm->tm_min) != 1) {
+            case 'M': // minute (00-59)
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed == 0) {
                     return NULL;
                 }
-                p += 2;
+                tm->tm_min = n;
+                p += consumed;
                 part_count++;
                 break;
-            }
-            case 'S': { // second
-                if (sscanf(p, "%2d", &tm->tm_sec) != 1) {
+            case 'S': // second (00-59)
+                if (sscanf(p, "%2d%n", &n, &consumed) != 1 || consumed == 0) {
                     return NULL;
                 }
-                p += 2;
+                tm->tm_sec = n;
+                p += consumed;
                 part_count++;
                 break;
-            }
             default:
                 // Unsupported format specifier
                 return NULL;
             }
             f++;
         } else {
-            // Match literal characters
+            // Match literal characters (like '-', ':', ' ')
             if (*f != *p) {
                 return NULL;
             }
